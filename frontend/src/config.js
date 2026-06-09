@@ -228,7 +228,7 @@ export const STUDENT_NAMES = {
   '26505077': 'Atithi Ramteke',
   '26505078': 'Bhumika Kubde',
   '26505079': 'Divya Hatzade',
-  '26505080': 'Jaanhavi Sawarkar',
+  '26505080': 'Janhavi Sawarkar',
   '26505081': 'Jaee Gonjari',
   '26505082': 'Kasturi Kawale',
   '26505083': 'Mnasi Samarth',

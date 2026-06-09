@@ -2,6 +2,8 @@ const FACULTY_MATERIALS_KEY = 'faculty_materials';
 const ASSIGNMENTS_KEY = 'faculty_assignments';
 const ASSIGNMENT_SUBMISSIONS_PREFIX = 'assignment_submissions_';
 const STUDENT_UPLOADS_PREFIX = 'student_uploads_';
+const MENTEE_PROFILE_PREFIX = 'mentee_profile_';
+const MENTEE_SUBMISSIONS_KEY = 'mentee_submissions';
 
 const safeParse = (value) => {
   try {
@@ -107,5 +109,51 @@ export const addStudentUpload = (studentId, upload) => {
     created_at: new Date().toISOString(),
   };
   saveStudentUploads(studentId, [...uploads, entry]);
+  return entry;
+};
+
+export const loadMenteeProfile = (studentId) => {
+  if (!studentId) return null;
+  return safeParse(localStorage.getItem(`${MENTEE_PROFILE_PREFIX}${studentId}`)) || null;
+};
+
+export const saveMenteeProfile = (studentId, profile) => {
+  if (!studentId) return null;
+  localStorage.setItem(`${MENTEE_PROFILE_PREFIX}${studentId}`, JSON.stringify(profile));
+  return profile;
+};
+
+export const upsertMenteeProfile = (studentId, profile) => {
+  const current = loadMenteeProfile(studentId) || {};
+  const entry = {
+    ...current,
+    ...profile,
+    student_id: studentId,
+    updated_at: new Date().toISOString(),
+  };
+  saveMenteeProfile(studentId, entry);
+  return entry;
+};
+
+export const loadMenteeSubmissions = () => {
+  return safeParse(localStorage.getItem(MENTEE_SUBMISSIONS_KEY)) || [];
+};
+
+export const saveMenteeSubmissions = (submissions) => {
+  localStorage.setItem(MENTEE_SUBMISSIONS_KEY, JSON.stringify(submissions || []));
+};
+
+export const addMenteeSubmission = (submission) => {
+  const entries = loadMenteeSubmissions();
+  const entry = {
+    id: Date.now(),
+    student_id: submission.student_id,
+    student_name: submission.student_name || submission.student_id,
+    issue_type: submission.issue_type,
+    issue_detail: submission.issue_detail,
+    submitted_date: submission.submitted_date || new Date().toISOString().slice(0, 10),
+    created_at: new Date().toISOString(),
+  };
+  saveMenteeSubmissions([...entries, entry]);
   return entry;
 };

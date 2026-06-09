@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { VALID_STUDENTS, STUDENT_NAMES } from '../config';
 import {
   addFacultyMaterial,
@@ -8,7 +8,11 @@ import {
   loadAssignments,
   deleteAssignment,
   loadAssignmentSubmissions,
+  loadMenteeProfile,
+  loadMenteeSubmissions,
 } from '../utils/storage';
+import { isMenteeRoll, getMenteeLabel, filterMenteeRecords } from '../utils/menteeUtils';
+import { buildAssignmentReportRows, buildMenteeReportRows, exportReportToExcel } from '../utils/reportExport';
 
 export default function FacultyDashboard() {
   const [activeTab, setActiveTab] = useState('materials');
@@ -16,6 +20,8 @@ export default function FacultyDashboard() {
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
+  const [menteeRecords, setMenteeRecords] = useState([]);
+  const [menteeSearch, setMenteeSearch] = useState('');
   const [materialForm, setMaterialForm] = useState({ title: '', drive_link: '', subject: '' });
   const [assignmentForm, setAssignmentForm] = useState({ title: '', subject: '', description: '', due_date: '' });
   const [feedback, setFeedback] = useState(null);
@@ -31,6 +37,19 @@ export default function FacultyDashboard() {
       setAssignmentSubmissions(loadAssignmentSubmissions(selectedAssignmentId));
     }
   }, [selectedAssignmentId]);
+
+  useEffect(() => {
+    if (activeTab === 'mentees') {
+      const records = VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId)).map((studentId) => ({
+        student_id: studentId,
+        name: STUDENT_NAMES[studentId] || studentId,
+        label: getMenteeLabel(studentId),
+        profile: loadMenteeProfile(studentId),
+        submissions: loadMenteeSubmissions().filter((item) => item.student_id === studentId),
+      }));
+      setMenteeRecords(records);
+    }
+  }, [activeTab]);
 
   const refreshMaterials = () => setMaterials(loadFacultyMaterials());
   const refreshAssignments = () => setAssignments(loadAssignments());
@@ -101,7 +120,33 @@ export default function FacultyDashboard() {
     setActiveTab('submissions');
   };
 
+  const handleExportAssignmentReport = async () => {
+    if (!selectedAssignment) {
+      setError('Select an assignment before exporting the submission tracker report.');
+      return;
+    }
+
+    const rows = buildAssignmentReportRows(selectedAssignment.title, assignmentStatusList);
+    const exported = await exportReportToExcel(`${selectedAssignment.title.replace(/\s+/g, '_')}_submission_report`, 'Assignment Tracker', rows);
+    if (!exported) {
+      setError('Excel export could not be generated.');
+      return;
+    }
+    setFeedback('Assignment tracker report downloaded as an Excel file.');
+  };
+
+  const handleExportMenteeReport = async () => {
+    const rows = buildMenteeReportRows(filteredMenteeRecords);
+    const exported = await exportReportToExcel('mentee_report', 'Mentee Records', rows);
+    if (!exported) {
+      setError('Excel export could not be generated.');
+      return;
+    }
+    setFeedback('Mentee record report downloaded as an Excel file.');
+  };
+
   const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId);
+  const filteredMenteeRecords = useMemo(() => filterMenteeRecords(menteeRecords, menteeSearch), [menteeRecords, menteeSearch]);
 
   const assignmentStatusList = VALID_STUDENTS.map((studentId) => {
     const submission = assignmentSubmissions.find((item) => item.student_id === studentId);
@@ -125,7 +170,7 @@ export default function FacultyDashboard() {
 
         <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-3">
-            {['materials', 'assignments', 'submissions'].map((tab) => (
+            {['materials', 'assignments', 'submissions', 'mentees'].map((tab) => (
               <button
                 key={tab}
                 type="button"
@@ -136,7 +181,7 @@ export default function FacultyDashboard() {
                     : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                {tab === 'materials' ? 'Share Notes' : tab === 'assignments' ? 'Create Assignment' : 'Submission Tracker'}
+                {tab === 'materials' ? 'Share Notes' : tab === 'assignments' ? 'Create Assignment' : tab === 'submissions' ? 'Submission Tracker' : 'My Mentees'}
               </button>
             ))}
           </div>
@@ -318,6 +363,92 @@ export default function FacultyDashboard() {
             </div>
           )}
 
+          {activeTab === 'mentees' && (
+            <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
+              <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="text-2xl font-semibold text-slate-900">My Mentees</h3>
+                  <p className="mt-2 text-slate-600">Track the mentoring records for roll numbers 26505075 to 26505110, including the details submitted and the suggestions, complaints, or requirements logged by date.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="rounded-3xl bg-slate-50 px-4 py-3 text-sm text-slate-600">Mentee count: {filteredMenteeRecords.length}</div>
+                  <button
+                    type="button"
+                    onClick={handleExportMenteeReport}
+                    className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    Export mentee report
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                <label className="mb-2 block text-sm font-semibold text-slate-700" htmlFor="mentee-search">Search mentees</label>
+                <input
+                  id="mentee-search"
+                  type="search"
+                  value={menteeSearch}
+                  onChange={(e) => setMenteeSearch(e.target.value)}
+                  placeholder="Search by name or roll number"
+                  className="w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                />
+                <p className="mt-2 text-xs uppercase tracking-[0.25em] text-slate-500">Showing {filteredMenteeRecords.length} of {menteeRecords.length} mentees</p>
+              </div>
+
+              {filteredMenteeRecords.length === 0 ? (
+                <p className="text-slate-600">No mentee records are available yet. Once students save their details and mentoring notes, they will appear here.</p>
+              ) : (
+                <div className="space-y-6">
+                  {filteredMenteeRecords.map((student) => (
+                    <article key={student.student_id} className="rounded-[28px] border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-sm uppercase tracking-[0.28em] text-slate-500">{student.label}</p>
+                          <h4 className="mt-2 text-xl font-semibold text-slate-900">{student.name}</h4>
+                          <p className="text-sm text-slate-600">Roll No: {student.student_id}</p>
+                        </div>
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-slate-700">Mentor: Prof. Pooja Pimpalshende</span>
+                      </div>
+
+                      <div className="mt-6 grid gap-4 md:grid-cols-2">
+                        <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                          <h5 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Family contact</h5>
+                          <p className="mt-3 text-sm text-slate-700">Father: {student.profile?.father_contact || 'Not provided'}</p>
+                          <p className="mt-2 text-sm text-slate-700">Mother: {student.profile?.mother_contact || 'Not provided'}</p>
+                        </div>
+                        <div className="rounded-3xl border border-slate-200 bg-white p-4">
+                          <h5 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Student details</h5>
+                          <p className="mt-3 text-sm text-slate-700">Aadhaar: {student.profile?.aadhaar_number || 'Not provided'}</p>
+                          <p className="mt-2 text-sm text-slate-700">Address: {student.profile?.address || 'Not provided'}</p>
+                          <p className="mt-2 text-sm text-slate-700">Scholarship details: {student.profile?.scholarship_details || 'Not provided'}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-4">
+                        <h5 className="text-sm font-semibold uppercase tracking-[0.25em] text-slate-500">Submitted mentoring notes</h5>
+                        {student.submissions.length === 0 ? (
+                          <p className="mt-3 text-sm text-slate-600">No suggestions, complaints, or requirements have been submitted yet.</p>
+                        ) : (
+                          <div className="mt-4 space-y-3">
+                            {student.submissions.map((entry) => (
+                              <div key={entry.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-800">{entry.issue_type}</span>
+                                  <span className="text-xs uppercase tracking-[0.25em] text-slate-500">{entry.submitted_date}</span>
+                                </div>
+                                <p className="mt-3 text-sm text-slate-700">{entry.issue_detail}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'submissions' && (
             <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
               <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -327,8 +458,17 @@ export default function FacultyDashboard() {
                     Select an assignment to see which students have submitted their drive links.
                   </p>
                 </div>
-                <div className="rounded-3xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  Total students: {VALID_STUDENTS.length}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="rounded-3xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    Total students: {VALID_STUDENTS.length}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportAssignmentReport}
+                    className="rounded-full bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    Export assignment report
+                  </button>
                 </div>
               </div>
 
