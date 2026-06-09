@@ -18,11 +18,11 @@ export default function DashboardHome() {
         <div className="space-y-6">
           <p className="text-sm uppercase tracking-[0.4em] text-slate-500">FacultyPoint</p>
           <h2 className="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-            Welcome to the Department of CSE (Data Science)
+            Welcome to CSE (Data Science) Department
           </h2>
           <p className="max-w-xl text-lg leading-8 text-slate-600">
             Use the login page to access your dashboard,
-            or explore study materials directly from the public resource section.
+            explore study materials directly from the public resource section and be updated.
           </p>
         </div>
       </div>
@@ -67,6 +67,37 @@ export default function DashboardHome() {
           </p>
         </div>
       </div>
+
+      <footer className="rounded-[32px] border border-slate-200 bg-slate-950 p-8 text-white shadow-xl">
+        <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr_0.9fr]">
+          <div>
+            <p className="text-sm uppercase tracking-[0.35em] text-slate-400">Department info</p>
+            <h3 className="mt-4 text-2xl font-semibold text-white">CSE (Data Science) Department</h3>
+            <p className="mt-4 max-w-md text-sm leading-6 text-slate-300">
+              FacultyPoint supports department communication, study material sharing, assignment tracking, and mentoring records for students and faculty in one place.
+            </p>
+            <p className="mt-4 text-sm text-slate-300">Mentor: Prof. Pooja Pimpalshende</p>
+          </div>
+
+          <div>
+            <h4 className="text-lg font-semibold text-white">Quick links</h4>
+            <ul className="mt-4 space-y-3 text-sm text-slate-300">
+              <li><button type="button" onClick={() => setActivePage('materials')} className="hover:text-white">Study Materials</button></li>
+              <li><button type="button" onClick={() => setActivePage('faculty-dashboard')} className="hover:text-white">Faculty Dashboard</button></li>
+              <li><button type="button" onClick={() => setActivePage('student-dashboard')} className="hover:text-white">Student Portal</button></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="text-lg font-semibold text-white">Connect with us</h4>
+            <ul className="mt-4 space-y-3 text-sm text-slate-300">
+              <li><a href="https://www.youtube.com/" target="_blank" rel="noreferrer" className="hover:text-white">YouTube</a></li>
+              <li><a href="https://www.instagram.com/" target="_blank" rel="noreferrer" className="hover:text-white">Instagram</a></li>
+              <li><a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" className="hover:text-white">LinkedIn</a></li>
+            </ul>
+          </div>
+        </div>
+      </footer>
     </section>
   );
 }

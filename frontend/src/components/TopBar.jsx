@@ -5,14 +5,15 @@ export default function TopBar() {
   const { role, displayName, activePage, setActivePage, logout, isAuthenticated } = useContext(RoleContext);
 
   return (
-    <div className="bg-white border-b border-slate-200 shadow-sm">
-      <div className="mx-auto flex flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between max-w-6xl">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">{isAuthenticated ? displayName : 'Prof. Pooja Pimpalshende'}</h1>
-          <p className="text-sm text-slate-500">{isAuthenticated ? `${role === 'faculty' ? 'Faculty Dashboard' : 'Student Portal'}` : 'Minimal portal for Data Science materials'}</p>
-        </div>
+    <div className="border-b border-slate-200 bg-white shadow-sm">
+      <div className="mx-auto max-w-6xl px-6 py-4">
+        <div className="flex flex-col gap-4 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-900">{isAuthenticated ? displayName : 'Prof. Pooja Pimpalshende'}</h1>
+            <p className="text-sm text-slate-500">{isAuthenticated ? `${role === 'faculty' ? 'Faculty Dashboard' : 'Student Portal'}` : 'Minimal portal for Data Science materials'}</p>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setActivePage('home')}
             className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
@@ -64,6 +65,7 @@ export default function TopBar() {
               Logout
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

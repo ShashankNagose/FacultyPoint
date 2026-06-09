@@ -1,6 +1,7 @@
 import React, { useContext } from 'react';
 import { RoleProvider, RoleContext } from './context/RoleContext';
 import TopBar from './components/TopBar';
+import instituteLogo from './assets/tgpcet log.jpeg';
 import LoginPage from './components/LoginPage';
 import DashboardHome from './pages/dashboard';
 import StudyMaterialsPage from './pages/materials';
@@ -13,6 +14,13 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <div className="overflow-hidden border-b border-slate-200 bg-white shadow-sm">
+        <img
+          src={instituteLogo}
+          alt="Institute banner"
+          className="h-14 w-full object-contain sm:h-16"
+        />
+      </div>
       <TopBar />
       <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6">
         {activePage === 'home' && <DashboardHome />}
