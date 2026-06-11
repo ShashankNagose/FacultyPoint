@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { RoleContext } from '../context/RoleContext';
 import {
-  addStudentUpload,
   loadStudentUploads,
   loadAssignments,
   addAssignmentSubmission,
@@ -10,15 +9,25 @@ import {
   addMenteeSubmission,
   loadMenteeProfile,
   loadMenteeSubmissions,
+  getApiFileUrl,
 } from '../utils/storage';
 import { STUDENT_NAMES } from '../config';
 import { isMenteeRoll } from '../utils/menteeUtils';
+
+const ACCEPTED_UPLOADS = 'image/*,.pdf,.zip';
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
+
+const validateUploadFile = (file) => {
+  if (!file) return 'Please select an image, PDF, or ZIP file.';
+  if (file.size > MAX_UPLOAD_SIZE) return 'File must be less than 5 MB.';
+  return null;
+};
 
 export default function StudentDashboard() {
   const { userId, displayName } = useContext(RoleContext);
   const [uploads, setUploads] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [assignmentForm, setAssignmentForm] = useState({ assignment_id: '', drive_link: '' });
+  const [assignmentForm, setAssignmentForm] = useState({ assignment_id: '', file: null });
   const [menteeProfile, setMenteeProfile] = useState({
     father_contact: '',
     mother_contact: '',
@@ -38,57 +47,77 @@ export default function StudentDashboard() {
   const isMentee = Boolean(userId && isMenteeRoll(userId));
 
   useEffect(() => {
-    if (userId) {
-      setUploads(loadStudentUploads(userId));
-      setMenteeNotes(loadMenteeSubmissions().filter((entry) => entry.student_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
-      setMenteeProfile(loadMenteeProfile(userId) || {
-        father_contact: '',
-        mother_contact: '',
-        aadhaar_number: '',
-        address: '',
-        scholarship_details: 'Yes',
-      });
-      const loadedAssignments = loadAssignments();
-      const enriched = loadedAssignments.map((assignment) => {
-        const submission = loadAssignmentSubmissions(assignment.id).find((item) => item.student_id === userId);
-        return {
-          ...assignment,
-          submitted: Boolean(submission),
-          drive_link: submission?.drive_link || '',
-        };
-      });
-      setAssignments(enriched);
-    }
+    if (!userId) return;
+
+    refreshUploads();
+    refreshMenteeNotes();
+    refreshMenteeProfile();
+    refreshAssignments();
   }, [userId]);
 
-  const refreshUploads = () => {
+  const refreshUploads = async () => {
     if (userId) {
-      setUploads(loadStudentUploads(userId));
+      try {
+        setUploads(await loadStudentUploads(userId));
+      } catch (err) {
+        console.error('Error loading uploads:', err);
+        setError('Unable to load your saved uploads.');
+      }
     }
   };
 
-  const refreshMenteeNotes = () => {
+  const refreshMenteeNotes = async () => {
     if (userId) {
-      setMenteeNotes(loadMenteeSubmissions().filter((entry) => entry.student_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+      try {
+        const notes = await loadMenteeSubmissions();
+        setMenteeNotes(notes.filter((entry) => entry.student_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+      } catch (err) {
+        console.error('Error loading mentee notes:', err);
+        setError('Unable to load mentoring notes.');
+      }
     }
   };
 
-  const refreshAssignments = () => {
+  const refreshMenteeProfile = async () => {
     if (userId) {
-      const loadedAssignments = loadAssignments();
-      const enriched = loadedAssignments.map((assignment) => {
-        const submission = loadAssignmentSubmissions(assignment.id).find((item) => item.student_id === userId);
-        return {
-          ...assignment,
-          submitted: Boolean(submission),
-          drive_link: submission?.drive_link || '',
-        };
-      });
-      setAssignments(enriched);
+      try {
+        setMenteeProfile(await loadMenteeProfile(userId) || {
+          father_contact: '',
+          mother_contact: '',
+          aadhaar_number: '',
+          address: '',
+          scholarship_details: 'Yes',
+        });
+      } catch (err) {
+        console.error('Error loading mentee profile:', err);
+        setError('Unable to load your mentee profile.');
+      }
     }
   };
 
-  const handleMenteeProfileSubmit = (e) => {
+  const refreshAssignments = async () => {
+    if (userId) {
+      try {
+        const loadedAssignments = await loadAssignments();
+        const enriched = await Promise.all(loadedAssignments.map(async (assignment) => {
+          const submissions = await loadAssignmentSubmissions(assignment.id);
+          const submission = submissions.find((item) => item.student_id === userId);
+          return {
+            ...assignment,
+            reference_attachment: assignment.attachment || null,
+            submitted: Boolean(submission),
+            submission_attachment: submission?.attachment || null,
+          };
+        }));
+        setAssignments(enriched);
+      } catch (err) {
+        console.error('Error loading assignments:', err);
+        setError('Unable to load assignments.');
+      }
+    }
+  };
+
+  const handleMenteeProfileSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setFeedback(null);
@@ -98,19 +127,24 @@ export default function StudentDashboard() {
       return;
     }
 
-    upsertMenteeProfile(userId, {
-      ...menteeProfile,
-      father_contact: menteeProfile.father_contact.trim(),
-      mother_contact: menteeProfile.mother_contact.trim(),
-      aadhaar_number: menteeProfile.aadhaar_number.trim(),
-      address: menteeProfile.address.trim(),
-      scholarship_details: menteeProfile.scholarship_details,
-    });
+    try {
+      await upsertMenteeProfile(userId, {
+        ...menteeProfile,
+        father_contact: menteeProfile.father_contact.trim(),
+        mother_contact: menteeProfile.mother_contact.trim(),
+        aadhaar_number: menteeProfile.aadhaar_number.trim(),
+        address: menteeProfile.address.trim(),
+        scholarship_details: menteeProfile.scholarship_details,
+      });
 
-    setFeedback('Your mentee record has been saved for the faculty mentor.');
+      setFeedback('Your mentee record has been saved for the faculty mentor.');
+    } catch (err) {
+      console.error('Error saving mentee profile:', err);
+      setError('Unable to save your mentee record right now.');
+    }
   };
 
-  const handleMenteeSuggestionSubmit = (e) => {
+  const handleMenteeSuggestionSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setFeedback(null);
@@ -120,26 +154,31 @@ export default function StudentDashboard() {
       return;
     }
 
-    const savedNote = addMenteeSubmission({
-      student_id: userId,
-      student_name: displayName || STUDENT_NAMES[userId] || userId,
-      issue_type: menteeSubmission.issue_type,
-      issue_detail: menteeSubmission.issue_detail.trim(),
-      submitted_date: menteeSubmission.submitted_date,
-    });
+    try {
+      const savedNote = await addMenteeSubmission({
+        student_id: userId,
+        student_name: displayName || STUDENT_NAMES[userId] || userId,
+        issue_type: menteeSubmission.issue_type,
+        issue_detail: menteeSubmission.issue_detail.trim(),
+        submitted_date: menteeSubmission.submitted_date,
+      });
 
-    setLastSavedNoteId(savedNote?.id || null);
-    refreshMenteeNotes();
-    setMenteeSubmission({
-      issue_type: 'suggestion',
-      issue_detail: '',
-      submitted_date: new Date().toISOString().slice(0, 10),
-    });
-    setFeedback('Your suggestion, complaint, or requirement has been saved for faculty review.');
-    window.setTimeout(() => setLastSavedNoteId(null), 2200);
+      setLastSavedNoteId(savedNote?.id || null);
+      await refreshMenteeNotes();
+      setMenteeSubmission({
+        issue_type: 'suggestion',
+        issue_detail: '',
+        submitted_date: new Date().toISOString().slice(0, 10),
+      });
+      setFeedback('Your suggestion, complaint, or requirement has been saved for faculty review.');
+      window.setTimeout(() => setLastSavedNoteId(null), 2200);
+    } catch (err) {
+      console.error('Error saving mentee note:', err);
+      setError('Unable to save the mentoring note right now.');
+    }
   };
 
-  const handleAssignmentSubmit = (e) => {
+  const handleAssignmentSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setFeedback(null);
@@ -149,8 +188,9 @@ export default function StudentDashboard() {
       return;
     }
 
-    if (!assignmentForm.drive_link.trim()) {
-      setError('Please paste your Google Drive link.');
+    const fileError = validateUploadFile(assignmentForm.file);
+    if (fileError) {
+      setError(fileError);
       return;
     }
 
@@ -160,20 +200,21 @@ export default function StudentDashboard() {
       return;
     }
 
-    addAssignmentSubmission(assignment.id, {
-      student_id: userId,
-      drive_link: assignmentForm.drive_link.trim(),
-    });
+    try {
+      await addAssignmentSubmission(assignment.id, {
+        student_id: userId,
+        file: assignmentForm.file,
+      });
 
-    addStudentUpload(userId, {
-      title: `Submission: ${assignment.title}`,
-      drive_link: assignmentForm.drive_link.trim(),
-    });
-
-    setAssignmentForm({ assignment_id: '', drive_link: '' });
-    refreshUploads();
-    refreshAssignments();
-    setFeedback('Assignment submitted successfully. Your dashboard and faculty tracker are now updated.');
+      setAssignmentForm({ assignment_id: '', file: null });
+      e.target.reset();
+      await refreshUploads();
+      await refreshAssignments();
+      setFeedback('Assignment submitted successfully. Your dashboard and faculty tracker are now updated.');
+    } catch (err) {
+      console.error('Error submitting assignment:', err);
+      setError('Unable to submit the assignment right now.');
+    }
   };
 
   return (
@@ -181,7 +222,7 @@ export default function StudentDashboard() {
       <div className="mx-auto max-w-6xl space-y-8">
         <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
           <h2 className="text-3xl font-semibold text-slate-900">{isMentee ? 'Mentee Dashboard' : 'Student Dashboard'}</h2>
-          <p className="mt-3 text-slate-600">Welcome, {displayName || userId || 'Student'}. {isMentee ? 'Use this portal to keep your mentor details current and submit suggestions, complaints, or requirements with dates.' : 'Submit assignments and keep your own drive links saved.'}</p>
+          <p className="mt-3 text-slate-600">Welcome, {displayName || userId || 'Student'}. {isMentee ? 'Use this portal to keep your mentor details current and submit suggestions, complaints, or requirements with dates.' : 'Submit assignments and keep your uploaded assignment files saved.'}</p>
         </div>
 
         {isMentee && (
@@ -284,7 +325,7 @@ export default function StudentDashboard() {
 
         <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
-            <h3 className="text-2xl font-semibold text-slate-900 mb-6">Submit assignment link</h3>
+            <h3 className="text-2xl font-semibold text-slate-900 mb-6">Submit assignment file</h3>
             {error && <div className="mb-6 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 animate-pulse">{error}</div>}
             {feedback && <div className="mb-6 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 animate-bounce">{feedback}</div>}
             <form onSubmit={handleAssignmentSubmit} className="space-y-5">
@@ -305,15 +346,15 @@ export default function StudentDashboard() {
                 </select>
               </div>
               <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Google Drive Link</label>
-                <textarea
-                  value={assignmentForm.drive_link}
-                  onChange={(e) => setAssignmentForm({ ...assignmentForm, drive_link: e.target.value })}
+                <label className="mb-2 block text-sm font-semibold text-slate-700">Upload file</label>
+                <input
+                  type="file"
+                  accept={ACCEPTED_UPLOADS}
+                  onChange={(e) => setAssignmentForm({ ...assignmentForm, file: e.target.files?.[0] || null })}
                   className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
-                  rows="4"
-                  placeholder="Paste your shareable Google Drive link here..."
                   required
                 />
+                <p className="mt-2 text-xs text-slate-500">Images, PDFs, and ZIP files only. Maximum 5 MB.</p>
               </div>
               <button
                 type="submit"
@@ -342,6 +383,16 @@ export default function StudentDashboard() {
                       </span>
                     </div>
                     <p className="mt-3 text-sm text-slate-700 line-clamp-2">{assignment.description}</p>
+                    {assignment.reference_attachment && (
+                      <a href={getApiFileUrl(assignment.reference_attachment.url)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-sm font-semibold text-blue-600 hover:text-blue-800">
+                        Open reference file
+                      </a>
+                    )}
+                    {assignment.submitted && assignment.submission_attachment && (
+                      <a href={getApiFileUrl(assignment.submission_attachment.url)} target="_blank" rel="noopener noreferrer" className="mt-2 block text-sm font-semibold text-emerald-700 hover:text-emerald-900">
+                        View your submitted file
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
@@ -350,22 +401,22 @@ export default function StudentDashboard() {
         </div>
 
         <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
-          <h3 className="text-2xl font-semibold text-slate-900 mb-6">Your saved links</h3>
+          <h3 className="text-2xl font-semibold text-slate-900 mb-6">Your saved uploads</h3>
           {uploads.length === 0 ? (
-            <p className="text-slate-600">You haven't uploaded any personal links yet. They appear here once saved.</p>
+            <p className="text-slate-600">You haven't uploaded any assignment files yet. They appear here once submitted.</p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {uploads.map((upload) => (
                 <div key={upload.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <h4 className="text-lg font-semibold text-slate-900">{upload.title}</h4>
-                  <a
-                    href={upload.drive_link}
+                  {upload.attachment && <a
+                    href={getApiFileUrl(upload.attachment.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-3 inline-block text-blue-600 hover:text-blue-800 text-sm break-all"
                   >
-                    Open Drive Link
-                  </a>
+                    Open file
+                  </a>}
                   <p className="mt-3 text-xs uppercase tracking-[0.25em] text-slate-400">Saved on {new Date(upload.created_at).toLocaleDateString()}</p>
                 </div>
               ))}

@@ -1,159 +1,125 @@
-const FACULTY_MATERIALS_KEY = 'faculty_materials';
-const ASSIGNMENTS_KEY = 'faculty_assignments';
-const ASSIGNMENT_SUBMISSIONS_PREFIX = 'assignment_submissions_';
-const STUDENT_UPLOADS_PREFIX = 'student_uploads_';
-const MENTEE_PROFILE_PREFIX = 'mentee_profile_';
-const MENTEE_SUBMISSIONS_KEY = 'mentee_submissions';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
 
-const safeParse = (value) => {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return [];
+export const getApiFileUrl = (url) => {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_ORIGIN}${url}`;
+};
+
+const request = async (path, options = {}) => {
+  const isFormData = options.body instanceof FormData;
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: isFormData
+      ? { ...(options.headers || {}) }
+      : {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+    ...options,
+  });
+
+  if (response.status === 204) {
+    return null;
   }
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.message || 'Unable to complete the request.');
+  }
+
+  return data;
 };
 
-export const loadFacultyMaterials = () => {
-  return safeParse(localStorage.getItem(FACULTY_MATERIALS_KEY)) || [];
+export const loadFacultyMaterials = () => request('/materials');
+
+const createFileFormData = (fields, file) => {
+  const formData = new FormData();
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      formData.append(key, value);
+    }
+  });
+  if (file) formData.append('file', file);
+  return formData;
 };
 
-export const saveFacultyMaterials = (materials) => {
-  localStorage.setItem(FACULTY_MATERIALS_KEY, JSON.stringify(materials || []));
-};
-
-export const addFacultyMaterial = (material) => {
-  const materials = loadFacultyMaterials();
-  const entry = {
-    id: Date.now(),
+export const addFacultyMaterial = (material) => request('/materials', {
+  method: 'POST',
+  body: createFileFormData({
     title: material.title,
-    drive_link: material.drive_link,
     subject: material.subject || 'General',
-    created_at: new Date().toISOString(),
-  };
-  saveFacultyMaterials([...materials, entry]);
-  return entry;
-};
+  }, material.file),
+});
 
-export const deleteFacultyMaterial = (materialId) => {
-  const materials = loadFacultyMaterials();
-  saveFacultyMaterials(materials.filter((material) => material.id !== materialId));
-};
+export const deleteFacultyMaterial = (materialId) => request(`/materials/${materialId}`, {
+  method: 'DELETE',
+});
 
-export const loadAssignments = () => {
-  return safeParse(localStorage.getItem(ASSIGNMENTS_KEY)) || [];
-};
+export const loadAssignments = () => request('/assignments');
 
-export const saveAssignments = (assignments) => {
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments || []));
-};
-
-export const addAssignment = (assignment) => {
-  const assignments = loadAssignments();
-  const entry = {
-    id: Date.now(),
+export const addAssignment = (assignment) => request('/assignments', {
+  method: 'POST',
+  body: createFileFormData({
     title: assignment.title,
     subject: assignment.subject || 'General',
     description: assignment.description,
     due_date: assignment.due_date || null,
-    created_at: new Date().toISOString(),
-  };
-  saveAssignments([...assignments, entry]);
-  return entry;
-};
+  }, assignment.file),
+});
 
-export const deleteAssignment = (assignmentId) => {
-  const assignments = loadAssignments();
-  saveAssignments(assignments.filter((assignment) => assignment.id !== assignmentId));
-  localStorage.removeItem(`${ASSIGNMENT_SUBMISSIONS_PREFIX}${assignmentId}`);
-};
+export const deleteAssignment = (assignmentId) => request(`/assignments/${assignmentId}`, {
+  method: 'DELETE',
+});
 
 export const loadAssignmentSubmissions = (assignmentId) => {
-  if (!assignmentId) return [];
-  return safeParse(localStorage.getItem(`${ASSIGNMENT_SUBMISSIONS_PREFIX}${assignmentId}`)) || [];
-};
-
-export const saveAssignmentSubmissions = (assignmentId, submissions) => {
-  if (!assignmentId) return;
-  localStorage.setItem(`${ASSIGNMENT_SUBMISSIONS_PREFIX}${assignmentId}`, JSON.stringify(submissions || []));
+  if (!assignmentId) return Promise.resolve([]);
+  return request(`/assignments/${assignmentId}/submissions`);
 };
 
 export const addAssignmentSubmission = (assignmentId, submission) => {
-  if (!assignmentId) return null;
-  const submissions = loadAssignmentSubmissions(assignmentId);
-  const filtered = submissions.filter((item) => item.student_id !== submission.student_id);
-  const entry = {
-    ...submission,
-    submitted_at: new Date().toISOString(),
-  };
-  saveAssignmentSubmissions(assignmentId, [...filtered, entry]);
-  return entry;
+  if (!assignmentId) return Promise.resolve(null);
+  return request(`/assignments/${assignmentId}/submissions`, {
+    method: 'POST',
+    body: createFileFormData({
+      student_id: submission.student_id,
+    }, submission.file),
+  });
 };
 
 export const loadStudentUploads = (studentId) => {
-  if (!studentId) return [];
-  return safeParse(localStorage.getItem(`${STUDENT_UPLOADS_PREFIX}${studentId}`)) || [];
-};
-
-export const saveStudentUploads = (studentId, uploads) => {
-  if (!studentId) return;
-  localStorage.setItem(`${STUDENT_UPLOADS_PREFIX}${studentId}`, JSON.stringify(uploads || []));
+  if (!studentId) return Promise.resolve([]);
+  return request(`/students/${studentId}/uploads`);
 };
 
 export const addStudentUpload = (studentId, upload) => {
-  if (!studentId) return null;
-  const uploads = loadStudentUploads(studentId);
-  const entry = {
-    id: Date.now(),
-    title: upload.title,
-    drive_link: upload.drive_link,
-    created_at: new Date().toISOString(),
-  };
-  saveStudentUploads(studentId, [...uploads, entry]);
-  return entry;
+  if (!studentId) return Promise.resolve(null);
+  return request(`/students/${studentId}/uploads`, {
+    method: 'POST',
+    body: createFileFormData({
+      title: upload.title,
+      assignment_id: upload.assignment_id || null,
+    }, upload.file),
+  });
 };
 
 export const loadMenteeProfile = (studentId) => {
-  if (!studentId) return null;
-  return safeParse(localStorage.getItem(`${MENTEE_PROFILE_PREFIX}${studentId}`)) || null;
-};
-
-export const saveMenteeProfile = (studentId, profile) => {
-  if (!studentId) return null;
-  localStorage.setItem(`${MENTEE_PROFILE_PREFIX}${studentId}`, JSON.stringify(profile));
-  return profile;
+  if (!studentId) return Promise.resolve(null);
+  return request(`/mentees/${studentId}/profile`);
 };
 
 export const upsertMenteeProfile = (studentId, profile) => {
-  const current = loadMenteeProfile(studentId) || {};
-  const entry = {
-    ...current,
-    ...profile,
-    student_id: studentId,
-    updated_at: new Date().toISOString(),
-  };
-  saveMenteeProfile(studentId, entry);
-  return entry;
+  if (!studentId) return Promise.resolve(null);
+  return request(`/mentees/${studentId}/profile`, {
+    method: 'PUT',
+    body: JSON.stringify(profile),
+  });
 };
 
-export const loadMenteeSubmissions = () => {
-  return safeParse(localStorage.getItem(MENTEE_SUBMISSIONS_KEY)) || [];
-};
+export const loadMenteeSubmissions = () => request('/mentees/submissions');
 
-export const saveMenteeSubmissions = (submissions) => {
-  localStorage.setItem(MENTEE_SUBMISSIONS_KEY, JSON.stringify(submissions || []));
-};
-
-export const addMenteeSubmission = (submission) => {
-  const entries = loadMenteeSubmissions();
-  const entry = {
-    id: Date.now(),
-    student_id: submission.student_id,
-    student_name: submission.student_name || submission.student_id,
-    issue_type: submission.issue_type,
-    issue_detail: submission.issue_detail,
-    submitted_date: submission.submitted_date || new Date().toISOString().slice(0, 10),
-    created_at: new Date().toISOString(),
-  };
-  saveMenteeSubmissions([...entries, entry]);
-  return entry;
-};
+export const addMenteeSubmission = (submission) => request('/mentees/submissions', {
+  method: 'POST',
+  body: JSON.stringify(submission),
+});

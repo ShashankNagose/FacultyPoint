@@ -1,1 +1,0 @@
-"""FacultyPoint Backend Application"""

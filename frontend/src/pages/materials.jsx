@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { loadFacultyMaterials, loadAssignments } from '../utils/storage';
+import { getApiFileUrl, loadFacultyMaterials, loadAssignments } from '../utils/storage';
 
 export default function StudyMaterialsPage() {
   const [materials, setMaterials] = useState([]);
@@ -8,17 +8,32 @@ export default function StudyMaterialsPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    try {
-      setMaterials(loadFacultyMaterials());
-      setAssignments(loadAssignments());
-    } catch (err) {
-      console.error('Error loading content:', err);
-      setError('Unable to load study materials or assignments at the moment.');
-    } finally {
-      setLoading(false);
-    }
+    let isMounted = true;
+
+    const loadContent = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [loadedMaterials, loadedAssignments] = await Promise.all([
+          loadFacultyMaterials(),
+          loadAssignments(),
+        ]);
+        if (!isMounted) return;
+        setMaterials(loadedMaterials);
+        setAssignments(loadedAssignments);
+      } catch (err) {
+        console.error('Error loading content:', err);
+        if (isMounted) setError('Unable to load study materials or assignments at the moment.');
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadContent();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
@@ -59,18 +74,18 @@ export default function StudyMaterialsPage() {
                     <h3 className="mt-3 text-xl font-semibold text-slate-900">{material.title}</h3>
                   </div>
                   <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-[0.3em] text-white">
-                    Link
+                    File
                   </span>
                 </div>
                 <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
-                  <a
-                    href={material.drive_link}
+                  {material.attachment && <a
+                    href={getApiFileUrl(material.attachment.url)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="font-semibold text-slate-900 hover:text-slate-700 break-words"
                   >
-                    Open link
-                  </a>
+                    Open file
+                  </a>}
                   <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Posted on {new Date(material.created_at).toLocaleDateString()}</p>
                 </div>
               </div>
@@ -105,6 +120,11 @@ export default function StudyMaterialsPage() {
                   </span>
                 </div>
                 <p className="mt-4 text-slate-700 leading-7">{assignment.description}</p>
+                {assignment.attachment && (
+                  <a href={getApiFileUrl(assignment.attachment.url)} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block text-sm font-semibold text-blue-600 hover:text-blue-800">
+                    Open reference file
+                  </a>
+                )}
                 <p className="mt-4 text-xs uppercase tracking-[0.3em] text-slate-400">Published on {new Date(assignment.created_at).toLocaleDateString()}</p>
               </div>
             ))}

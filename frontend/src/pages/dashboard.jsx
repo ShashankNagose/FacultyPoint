@@ -7,7 +7,19 @@ export default function DashboardHome() {
   const [assignments, setAssignments] = useState([]);
 
   useEffect(() => {
-    setAssignments(loadAssignments());
+    let isMounted = true;
+
+    loadAssignments()
+      .then((items) => {
+        if (isMounted) setAssignments(items);
+      })
+      .catch(() => {
+        if (isMounted) setAssignments([]);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const latestAssignment = assignments[assignments.length - 1];

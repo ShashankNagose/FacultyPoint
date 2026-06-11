@@ -10,9 +10,19 @@ import {
   loadAssignmentSubmissions,
   loadMenteeProfile,
   loadMenteeSubmissions,
+  getApiFileUrl,
 } from '../utils/storage';
 import { isMenteeRoll, getMenteeLabel, filterMenteeRecords } from '../utils/menteeUtils';
 import { buildAssignmentReportRows, buildMenteeReportRows, exportReportToExcel } from '../utils/reportExport';
+
+const ACCEPTED_UPLOADS = 'image/*,.pdf,.zip';
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
+
+const validateUploadFile = (file) => {
+  if (!file) return 'Please select an image, PDF, or ZIP file.';
+  if (file.size > MAX_UPLOAD_SIZE) return 'File must be less than 5 MB.';
+  return null;
+};
 
 export default function FacultyDashboard() {
   const [activeTab, setActiveTab] = useState('materials');
@@ -22,77 +32,148 @@ export default function FacultyDashboard() {
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [menteeRecords, setMenteeRecords] = useState([]);
   const [menteeSearch, setMenteeSearch] = useState('');
-  const [materialForm, setMaterialForm] = useState({ title: '', drive_link: '', subject: '' });
-  const [assignmentForm, setAssignmentForm] = useState({ title: '', subject: '', description: '', due_date: '' });
+  const [materialForm, setMaterialForm] = useState({ title: '', subject: '', file: null });
+  const [assignmentForm, setAssignmentForm] = useState({ title: '', subject: '', description: '', due_date: '', file: null });
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    setMaterials(loadFacultyMaterials());
-    setAssignments(loadAssignments());
+    refreshMaterials();
+    refreshAssignments();
   }, []);
 
   useEffect(() => {
-    if (selectedAssignmentId) {
-      setAssignmentSubmissions(loadAssignmentSubmissions(selectedAssignmentId));
-    }
+    let isMounted = true;
+
+    const loadSubmissions = async () => {
+      if (selectedAssignmentId) {
+        const submissions = await loadAssignmentSubmissions(selectedAssignmentId);
+        if (isMounted) setAssignmentSubmissions(submissions);
+      }
+    };
+
+    loadSubmissions().catch((err) => {
+      console.error('Error loading submissions:', err);
+      if (isMounted) setAssignmentSubmissions([]);
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedAssignmentId]);
 
   useEffect(() => {
-    if (activeTab === 'mentees') {
-      const records = VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId)).map((studentId) => ({
-        student_id: studentId,
-        name: STUDENT_NAMES[studentId] || studentId,
-        label: getMenteeLabel(studentId),
-        profile: loadMenteeProfile(studentId),
-        submissions: loadMenteeSubmissions().filter((item) => item.student_id === studentId),
-      }));
-      setMenteeRecords(records);
-    }
+    let isMounted = true;
+
+    const loadMentees = async () => {
+      if (activeTab === 'mentees') {
+        const [profiles, submissions] = await Promise.all([
+          Promise.all(VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId)).map((studentId) => loadMenteeProfile(studentId))),
+          loadMenteeSubmissions(),
+        ]);
+
+        if (!isMounted) return;
+
+        const menteeIds = VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId));
+        const records = menteeIds.map((studentId, index) => ({
+          student_id: studentId,
+          name: STUDENT_NAMES[studentId] || studentId,
+          label: getMenteeLabel(studentId),
+          profile: profiles[index],
+          submissions: submissions.filter((item) => item.student_id === studentId),
+        }));
+        setMenteeRecords(records);
+      }
+    };
+
+    loadMentees().catch((err) => {
+      console.error('Error loading mentee records:', err);
+      if (isMounted) setError('Unable to load mentee records at the moment.');
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [activeTab]);
 
-  const refreshMaterials = () => setMaterials(loadFacultyMaterials());
-  const refreshAssignments = () => setAssignments(loadAssignments());
-
-  const handleDeleteMaterial = (materialId) => {
-    deleteFacultyMaterial(materialId);
-    refreshMaterials();
-    setFeedback('Note deleted successfully.');
-  };
-
-  const handleDeleteAssignment = (assignmentId) => {
-    deleteAssignment(assignmentId);
-    refreshAssignments();
-    if (selectedAssignmentId === assignmentId) {
-      setSelectedAssignmentId(null);
-      setAssignmentSubmissions([]);
-      setActiveTab('assignments');
+  const refreshMaterials = async () => {
+    try {
+      setMaterials(await loadFacultyMaterials());
+    } catch (err) {
+      console.error('Error loading materials:', err);
+      setError('Unable to load shared notes.');
     }
-    setFeedback('Assignment deleted successfully.');
   };
 
-  const handleMaterialSubmit = (e) => {
+  const refreshAssignments = async () => {
+    try {
+      setAssignments(await loadAssignments());
+    } catch (err) {
+      console.error('Error loading assignments:', err);
+      setError('Unable to load assignments.');
+    }
+  };
+
+  const handleDeleteMaterial = async (materialId) => {
+    setError(null);
+    setFeedback(null);
+    try {
+      await deleteFacultyMaterial(materialId);
+      await refreshMaterials();
+      setFeedback('Note deleted successfully.');
+    } catch (err) {
+      console.error('Error deleting material:', err);
+      setError('Unable to delete the note right now.');
+    }
+  };
+
+  const handleDeleteAssignment = async (assignmentId) => {
+    setError(null);
+    setFeedback(null);
+    try {
+      await deleteAssignment(assignmentId);
+      await refreshAssignments();
+      if (selectedAssignmentId === assignmentId) {
+        setSelectedAssignmentId(null);
+        setAssignmentSubmissions([]);
+        setActiveTab('assignments');
+      }
+      setFeedback('Assignment deleted successfully.');
+    } catch (err) {
+      console.error('Error deleting assignment:', err);
+      setError('Unable to delete the assignment right now.');
+    }
+  };
+
+  const handleMaterialSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setFeedback(null);
 
-    if (!materialForm.title.trim() || !materialForm.drive_link.trim()) {
-      setError('Please enter both a title and a Google Drive link.');
+    const fileError = validateUploadFile(materialForm.file);
+    if (!materialForm.title.trim() || fileError) {
+      setError(!materialForm.title.trim() ? 'Please enter a title.' : fileError);
       return;
     }
 
-    addFacultyMaterial({
-      title: materialForm.title.trim(),
-      drive_link: materialForm.drive_link.trim(),
-      subject: materialForm.subject.trim() || 'General',
-    });
+    try {
+      await addFacultyMaterial({
+        title: materialForm.title.trim(),
+        subject: materialForm.subject.trim() || 'General',
+        file: materialForm.file,
+      });
 
-    setMaterialForm({ title: '', drive_link: '', subject: '' });
-    refreshMaterials();
-    setFeedback('Shared successfully. Your note is now visible on the Study Material page.');
+      setMaterialForm({ title: '', subject: '', file: null });
+      e.target.reset();
+      await refreshMaterials();
+      setFeedback('Uploaded successfully. Your note is now visible on the Study Material page.');
+    } catch (err) {
+      console.error('Error saving material:', err);
+      setError('Unable to share the note right now.');
+    }
   };
 
-  const handleAssignmentSubmit = (e) => {
+  const handleAssignmentSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setFeedback(null);
@@ -102,17 +183,30 @@ export default function FacultyDashboard() {
       return;
     }
 
-    addAssignment({
-      title: assignmentForm.title.trim(),
-      subject: assignmentForm.subject.trim() || 'General',
-      description: assignmentForm.description.trim(),
-      due_date: assignmentForm.due_date || null,
-    });
+    try {
+      const fileError = assignmentForm.file ? validateUploadFile(assignmentForm.file) : null;
+      if (fileError) {
+        setError(fileError);
+        return;
+      }
 
-    setAssignmentForm({ title: '', subject: '', description: '', due_date: '' });
-    refreshAssignments();
-    setActiveTab('assignments');
-    setFeedback('Assignment created successfully. It is now visible on Home and Study Material.');
+      await addAssignment({
+        title: assignmentForm.title.trim(),
+        subject: assignmentForm.subject.trim() || 'General',
+        description: assignmentForm.description.trim(),
+        due_date: assignmentForm.due_date || null,
+        file: assignmentForm.file,
+      });
+
+      setAssignmentForm({ title: '', subject: '', description: '', due_date: '', file: null });
+      e.target.reset();
+      await refreshAssignments();
+      setActiveTab('assignments');
+      setFeedback('Assignment created successfully. It is now visible on Home and Study Material.');
+    } catch (err) {
+      console.error('Error creating assignment:', err);
+      setError('Unable to create the assignment right now.');
+    }
   };
 
   const handleSelectAssignment = (assignmentId) => {
@@ -154,7 +248,7 @@ export default function FacultyDashboard() {
       student_id: studentId,
       name: STUDENT_NAMES[studentId] || studentId,
       submitted: Boolean(submission),
-      drive_link: submission?.drive_link || null,
+      attachment: submission?.attachment || null,
     };
   });
 
@@ -192,7 +286,7 @@ export default function FacultyDashboard() {
           {activeTab === 'materials' && (
             <div className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
               <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
-                <h3 className="text-2xl font-semibold text-slate-900 mb-6">Upload new Google Drive note</h3>
+                <h3 className="text-2xl font-semibold text-slate-900 mb-6">Upload new note</h3>
                 <form onSubmit={handleMaterialSubmit} className="space-y-5">
                   <div>
                     <label className="mb-2 block text-sm font-semibold text-slate-700">Title</label>
@@ -214,14 +308,15 @@ export default function FacultyDashboard() {
                     />
                   </div>
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700">Google Drive Link</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">File</label>
                     <input
-                      value={materialForm.drive_link}
-                      onChange={(e) => setMaterialForm({ ...materialForm, drive_link: e.target.value })}
+                      type="file"
+                      accept={ACCEPTED_UPLOADS}
+                      onChange={(e) => setMaterialForm({ ...materialForm, file: e.target.files?.[0] || null })}
                       className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
-                      placeholder="https://drive.google.com/..."
                       required
                     />
+                    <p className="mt-2 text-xs text-slate-500">Images, PDFs, and ZIP files only. Maximum 5 MB.</p>
                   </div>
                   <button
                     type="submit"
@@ -235,7 +330,7 @@ export default function FacultyDashboard() {
               <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-xl">
                 <h3 className="text-2xl font-semibold text-slate-900 mb-6">Your shared notes</h3>
                 {materials.length === 0 ? (
-                  <p className="text-slate-600">No shared notes yet. Add a Google Drive link to see it here and on Study Material.</p>
+                  <p className="text-slate-600">No shared notes yet. Upload a file to see it here and on Study Material.</p>
                 ) : (
                   <div className="space-y-4">
                     {materials.map((material) => (
@@ -246,14 +341,14 @@ export default function FacultyDashboard() {
                             <h4 className="mt-2 text-lg font-semibold text-slate-900">{material.title}</h4>
                           </div>
                           <div className="flex items-center gap-2">
-                            <a
-                              href={material.drive_link}
+                            {material.attachment && <a
+                              href={getApiFileUrl(material.attachment.url)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-slate-800"
                             >
-                              Open Drive Link
-                            </a>
+                              Open File
+                            </a>}
                             <button
                               type="button"
                               onClick={() => handleDeleteMaterial(material.id)}
@@ -315,6 +410,16 @@ export default function FacultyDashboard() {
                       className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
                     />
                   </div>
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Reference file</label>
+                    <input
+                      type="file"
+                      accept={ACCEPTED_UPLOADS}
+                      onChange={(e) => setAssignmentForm({ ...assignmentForm, file: e.target.files?.[0] || null })}
+                      className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">Optional image, PDF, or ZIP reference. Maximum 5 MB.</p>
+                  </div>
                   <button
                     type="submit"
                     className="rounded-3xl bg-slate-900 px-6 py-3 text-base font-semibold text-white transition hover:bg-slate-800"
@@ -355,6 +460,11 @@ export default function FacultyDashboard() {
                           </div>
                         </div>
                         <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-2">{assignment.description}</p>
+                        {assignment.attachment && (
+                          <a href={getApiFileUrl(assignment.attachment.url)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-sm font-semibold text-blue-600 hover:text-blue-800">
+                            Open reference file
+                          </a>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -455,7 +565,7 @@ export default function FacultyDashboard() {
                 <div>
                   <h3 className="text-2xl font-semibold text-slate-900">Submission Tracker</h3>
                   <p className="mt-2 text-slate-600">
-                    Select an assignment to see which students have submitted their drive links.
+                    Select an assignment to see which students have uploaded their files.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
@@ -508,6 +618,11 @@ export default function FacultyDashboard() {
                           </div>
                         </div>
                         <p className="mt-4 text-slate-700">{selectedAssignment.description}</p>
+                        {selectedAssignment.attachment && (
+                          <a href={getApiFileUrl(selectedAssignment.attachment.url)} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block text-sm font-semibold text-blue-600 hover:text-blue-800">
+                            Open reference file
+                          </a>
+                        )}
                       </div>
 
                       <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white p-4">
@@ -516,7 +631,7 @@ export default function FacultyDashboard() {
                             <tr className="border-b border-slate-200 bg-slate-100">
                               <th className="px-4 py-3">Student</th>
                               <th className="px-4 py-3">Status</th>
-                              <th className="px-4 py-3">Drive Link</th>
+                              <th className="px-4 py-3">Submitted File</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -532,10 +647,12 @@ export default function FacultyDashboard() {
                                   </span>
                                 </td>
                                 <td className="px-4 py-3 break-words">
-                                  {student.submitted ? (
-                                    <a href={student.drive_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">
-                                      View link
+                                  {student.submitted && student.attachment ? (
+                                    <a href={getApiFileUrl(student.attachment?.url)} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">
+                                      View file
                                     </a>
+                                  ) : student.submitted ? (
+                                    <span className="text-slate-500">File unavailable</span>
                                   ) : (
                                     <span className="text-slate-500">—</span>
                                   )}
