@@ -7,6 +7,10 @@ export async function connectDatabase() {
     throw new Error('MONGODB_URI is missing. Add it to backend/.env');
   }
 
+  if (mongoose.connection.readyState === 1) {
+    return mongoose.connection;
+  }
+
   mongoose.set('strictQuery', true);
-  await mongoose.connect(mongoUri);
+  return mongoose.connect(mongoUri);
 }
