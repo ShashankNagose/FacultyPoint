@@ -17,6 +17,9 @@ const prepareDatabase = async () => {
 export default async function handler(req, res) {
   try {
     await prepareDatabase();
+    if (req.url && !req.url.startsWith('/api/')) {
+      req.url = `/api${req.url.startsWith('/') ? req.url : `/${req.url}`}`;
+    }
     return app(req, res);
   } catch (error) {
     console.error('API startup failed:', error);

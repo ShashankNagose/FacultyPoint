@@ -11,10 +11,20 @@ const allowedOrigins = new Set([
   'http://127.0.0.1:5173',
   ...(process.env.CLIENT_ORIGIN?.split(',').map((origin) => origin.trim()).filter(Boolean) || [])
 ]);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+
+  try {
+    return new URL(origin).hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+};
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.has(origin) || !process.env.CLIENT_ORIGIN) {
+    if (isAllowedOrigin(origin) || !process.env.CLIENT_ORIGIN) {
       callback(null, true);
       return;
     }
@@ -33,6 +43,10 @@ app.get('/', (_req, res) => {
 });
 
 app.get('/health', (_req, res) => {
+  res.json({ status: 'healthy' });
+});
+
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'healthy' });
 });
 
