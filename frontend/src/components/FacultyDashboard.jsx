@@ -15,11 +15,11 @@ import {
 import { isMenteeRoll, getMenteeLabel, filterMenteeRecords } from '../utils/menteeUtils';
 import { buildAssignmentReportRows, buildMenteeReportRows, exportReportToExcel } from '../utils/reportExport';
 
-const ACCEPTED_UPLOADS = 'image/*,.pdf,.zip';
+const ACCEPTED_UPLOADS = 'image/*,.pdf,.doc,.docx,.ppt,.pptx,.zip';
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
 const validateUploadFile = (file) => {
-  if (!file) return 'Please select an image, PDF, or ZIP file.';
+  if (!file) return 'Please select an image, PDF, Word, PowerPoint, or ZIP file.';
   if (file.size > MAX_UPLOAD_SIZE) return 'File must be less than 5 MB.';
   return null;
 };
@@ -67,9 +67,21 @@ export default function FacultyDashboard() {
 
     const loadMentees = async () => {
       if (activeTab === 'mentees') {
-        const [profiles, submissions] = await Promise.all([
-          Promise.all(VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId)).map((studentId) => loadMenteeProfile(studentId))),
-          loadMenteeSubmissions(),
+        const [profilesResult, submissionsResult] = await Promise.all([
+          Promise.all(
+            VALID_STUDENTS.filter((studentId) => isMenteeRoll(studentId)).map(async (studentId) => {
+              try {
+                return await loadMenteeProfile(studentId);
+              } catch (profileError) {
+                console.error('Error loading mentee profile for', studentId, profileError);
+                return null;
+              }
+            })
+          ),
+          loadMenteeSubmissions().catch((err) => {
+            console.error('Error loading mentee submissions:', err);
+            return [];
+          }),
         ]);
 
         if (!isMounted) return;
@@ -79,8 +91,8 @@ export default function FacultyDashboard() {
           student_id: studentId,
           name: STUDENT_NAMES[studentId] || studentId,
           label: getMenteeLabel(studentId),
-          profile: profiles[index],
-          submissions: submissions.filter((item) => item.student_id === studentId),
+          profile: profilesResult[index],
+          submissions: submissionsResult.filter((item) => item.student_id === studentId),
         }));
         setMenteeRecords(records);
       }

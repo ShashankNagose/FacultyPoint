@@ -6,6 +6,10 @@ const allowedTypes = new Set([
   'application/pdf',
   'application/zip',
   'application/x-zip-compressed',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'image/jpeg',
   'image/jpg',
   'image/png',
@@ -24,7 +28,7 @@ export const uploadSingleFile = multer({
       return;
     }
 
-    cb(new Error('Only image, PDF, and ZIP files up to 5 MB are allowed.'));
+    cb(new Error('Only image, PDF, Word, PowerPoint, and ZIP files up to 5 MB are allowed.'));
   }
 }).single('file');
 

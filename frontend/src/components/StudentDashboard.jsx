@@ -14,11 +14,11 @@ import {
 import { STUDENT_NAMES } from '../config';
 import { isMenteeRoll } from '../utils/menteeUtils';
 
-const ACCEPTED_UPLOADS = 'image/*,.pdf,.zip';
+const ACCEPTED_UPLOADS = 'image/*,.pdf,.doc,.docx,.ppt,.pptx,.zip';
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
 const validateUploadFile = (file) => {
-  if (!file) return 'Please select an image, PDF, or ZIP file.';
+  if (!file) return 'Please select an image, PDF, Word, PowerPoint, or ZIP file.';
   if (file.size > MAX_UPLOAD_SIZE) return 'File must be less than 5 MB.';
   return null;
 };
@@ -50,10 +50,12 @@ export default function StudentDashboard() {
     if (!userId) return;
 
     refreshUploads();
-    refreshMenteeNotes();
-    refreshMenteeProfile();
+    if (isMentee) {
+      refreshMenteeNotes();
+      refreshMenteeProfile();
+    }
     refreshAssignments();
-  }, [userId]);
+  }, [userId, isMentee]);
 
   const refreshUploads = async () => {
     if (userId) {
@@ -67,53 +69,67 @@ export default function StudentDashboard() {
   };
 
   const refreshMenteeNotes = async () => {
-    if (userId) {
-      try {
-        const notes = await loadMenteeSubmissions();
-        setMenteeNotes(notes.filter((entry) => entry.student_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
-      } catch (err) {
-        console.error('Error loading mentee notes:', err);
-        setError('Unable to load mentoring notes.');
-      }
+    if (!isMentee || !userId) return;
+
+    try {
+      const notes = await loadMenteeSubmissions();
+      setMenteeNotes(notes.filter((entry) => entry.student_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
+    } catch (err) {
+      console.error('Error loading mentee notes:', err);
+      setError('Unable to load mentoring notes.');
     }
   };
 
   const refreshMenteeProfile = async () => {
-    if (userId) {
-      try {
-        setMenteeProfile(await loadMenteeProfile(userId) || {
+    if (!isMentee || !userId) return;
+
+    try {
+      setMenteeProfile(
+        (await loadMenteeProfile(userId)) || {
           father_contact: '',
           mother_contact: '',
           aadhaar_number: '',
           address: '',
           scholarship_details: 'Yes',
-        });
-      } catch (err) {
-        console.error('Error loading mentee profile:', err);
-        setError('Unable to load your mentee profile.');
-      }
+        }
+      );
+    } catch (err) {
+      console.error('Error loading mentee profile:', err);
+      setError('Unable to load your mentee profile.');
     }
   };
 
   const refreshAssignments = async () => {
-    if (userId) {
-      try {
-        const loadedAssignments = await loadAssignments();
-        const enriched = await Promise.all(loadedAssignments.map(async (assignment) => {
-          const submissions = await loadAssignmentSubmissions(assignment.id);
-          const submission = submissions.find((item) => item.student_id === userId);
-          return {
-            ...assignment,
-            reference_attachment: assignment.attachment || null,
-            submitted: Boolean(submission),
-            submission_attachment: submission?.attachment || null,
-          };
-        }));
-        setAssignments(enriched);
-      } catch (err) {
-        console.error('Error loading assignments:', err);
-        setError('Unable to load assignments.');
-      }
+    if (!userId) return;
+
+    try {
+      const loadedAssignments = await loadAssignments();
+      const enriched = await Promise.all(
+        loadedAssignments.map(async (assignment) => {
+          try {
+            const submissions = await loadAssignmentSubmissions(assignment.id);
+            const submission = submissions.find((item) => item.student_id === userId);
+            return {
+              ...assignment,
+              reference_attachment: assignment.attachment || null,
+              submitted: Boolean(submission),
+              submission_attachment: submission?.attachment || null,
+            };
+          } catch (subError) {
+            console.error('Error loading assignment submissions:', subError);
+            return {
+              ...assignment,
+              reference_attachment: assignment.attachment || null,
+              submitted: false,
+              submission_attachment: null,
+            };
+          }
+        })
+      );
+      setAssignments(enriched);
+    } catch (err) {
+      console.error('Error loading assignments:', err);
+      setError('Unable to load assignments.');
     }
   };
 
@@ -354,7 +370,7 @@ export default function StudentDashboard() {
                   className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
                   required
                 />
-                <p className="mt-2 text-xs text-slate-500">Images, PDFs, and ZIP files only. Maximum 5 MB.</p>
+                <p className="mt-2 text-xs text-slate-500">Images, PDFs, Word, PowerPoint, and ZIP files are supported. Maximum 5 MB.</p>
               </div>
               <button
                 type="submit"
